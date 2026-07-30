@@ -1,0 +1,9 @@
+requests
+bs4
+easyocr
+pdfplumber
+pandas
+numpy
+playwright
+psycopg2-binary
+cloudscraper
