@@ -171,9 +171,6 @@ def send_to_database(df, page_url,combined_df,tab):
     combined_df = clean_columns(combined_df)
 
     return combined_df
-
-combined_df = obtain_tables_wiki()
-combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
 import re
 
 def make_unique_columns(columns, max_length=63):
@@ -200,3 +197,7 @@ def make_unique_columns(columns, max_length=63):
         new_columns.append(col)
 
     return new_columns
+
+combined_df = obtain_tables_wiki()
+combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+combined_df.columns = make_unique_columns(combined_df.columns)
