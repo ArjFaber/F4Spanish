@@ -1,0 +1,177 @@
+import time
+import requests
+
+def crawl(url):
+    time.sleep(10)  # wacht 3 seconden tussen requests
+
+    headers = {
+        "User-Agent": "F4DataScraper/1.0 "
+    }
+
+    response = requests.get(
+        url,
+        headers=headers
+    )
+
+    response.raise_for_status()
+
+    return response.text
+  
+def obtain_tables_wiki():
+    years = [2022, 2023, 2024, 2025,2026]
+    combined_df = None
+    for y in years:
+
+        page_url = f"https://en.wikipedia.org/wiki/{y}_F4_Spanish_Championship"
+
+        html = crawl(page_url)
+
+        article, tables = scrape_article(html)
+        article["source_url"] = page_url
+        article["license"] = "CC BY-SA 4.0"
+
+        with open("wikipedia.json", "w", encoding="utf-8") as f:
+            json.dump(article, f, indent=2, ensure_ascii=False)
+
+        
+
+        for i, df in enumerate(tables):
+        
+            # Append metadata columns
+            df["year"] = y
+            df["table_index"] = i
+            df["source_url"] = page_url
+            df["license"] = "CC BY-SA 4.0"
+            if combined_df is None:
+                combined_df = df.copy()
+           
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            #if len(df.columns) == 7:  # originally 3 + 4 metadata columns
+                #df.to_csv(f"wikipedia_table_team_standing_{i}_{y}.csv", index=False)
+            #    combined_df = send_to_database(df,page_url,combined_df,str(i))
+
+            if len(df.columns) > 20:  # originally >20
+                #df.to_csv(f"wikipedia_table_results_{i}_{y}.csv", index=False)
+                combined_df = send_to_database(df,page_url,combined_df,str(i))
+            elif len(df.columns) == 16:  # originally 12 + 4 metadata columns
+                #df.to_csv(f"wikipedia_table_team_standing_{i}_{y}.csv", index=False)
+                combined_df = send_to_database(df,page_url,combined_df,str(i))
+        print(json.dumps(article, indent=2, ensure_ascii=False))
+        print(f"Saved {len(tables)} table(s)")
+
+    return combined_df
+
+
+import json
+from io import StringIO
+
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from pathlib import Path
+
+def crawl(url):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/138.0.0.0 Safari/537.36"
+        )
+    }
+
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.text
+
+
+def scrape_article(html):
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Title
+    title = soup.find("h1", id="firstHeading").get_text(strip=True)
+
+    # Main content
+    content = soup.find("div", class_="mw-parser-output")
+
+    # First paragraphs
+    summary = []
+    for p in content.find_all("p", recursive=False):
+        text = p.get_text(" ", strip=True)
+        if text:
+            summary.append(text)
+        if len(summary) >= 3:
+            break
+
+    # Section headings
+    sections = []
+    for tag in content.find_all(["h2", "h3"]):
+        headline = tag.find("span", class_="mw-headline")
+        if headline:
+            sections.append(headline.get_text(strip=True))
+
+    # Infobox
+    infobox = {}
+    box = soup.find("table", class_="infobox")
+    if box:
+        for row in box.find_all("tr"):
+            label = row.find("th")
+            data = row.find("td")
+            if label and data:
+                infobox[label.get_text(" ", strip=True)] = data.get_text(
+                    " ", strip=True
+                )
+
+    # Wikitables
+    tables = []
+    for node in soup.find_all("table", class_="wikitable"):
+        try:
+            df = pd.read_html(StringIO(str(node)))[0]
+            tables.append(df)
+        except Exception:
+            pass
+
+    return {
+        "title": title,
+        "summary": " ".join(summary),
+        "sections": sections,
+        "infobox": infobox,
+    }, tables
+
+def clean_columns(df):
+    # remove duplicated column names
+    df = df.loc[:, ~df.columns.duplicated()]
+
+    # remove completely empty columns
+    df = df.dropna(axis=1, how="all")
+
+    return df
+
+
+def find_driver_column(df):
+    for col in df.columns:
+        if "driver" in str(col).lower():
+            return col
+    return None
+
+def send_to_database(df, page_url,combined_df,tab):
+
+    driver_col = find_driver_column(df)
+
+    df = df.rename(columns={driver_col: "Driver"})
+    df = clean_columns(df)
+
+    combined_df = clean_columns(combined_df)
+
+    # make columns unique before merge
+    suffix = "_" + str(page_url) +'tab' +tab
+   
+    combined_df = pd.merge(
+        combined_df,
+        df, on="Driver", how="outer", suffixes=("", suffix))
+
+    combined_df = clean_columns(combined_df)
+
+    return combined_df
+
+combined_df = obtain_tables_wiki()
