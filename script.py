@@ -175,3 +175,41 @@ def send_to_database(df, page_url,combined_df,tab):
     return combined_df
 
 combined_df = obtain_tables_wiki()
+
+import psycopg2
+
+table_name = "f4_spanish_results"
+
+# Create table dynamically
+columns = combined_df.columns.tolist()
+
+column_definitions = ", ".join(
+    f'"{col}" TEXT' for col in columns
+)
+
+cur.execute(f'DROP TABLE IF EXISTS "{table_name}" CASCADE;')
+conn.commit()
+
+cur.execute(f"""
+CREATE TABLE IF NOT EXISTS "{table_name}" (
+    {column_definitions}
+)
+""")
+
+conn.commit()
+
+# Build INSERT statement dynamically
+column_names = ", ".join(f'"{col}"' for col in columns)
+placeholders = ", ".join(["%s"] * len(columns))
+
+insert_query = f"""
+INSERT INTO "{table_name}" ({column_names})
+VALUES ({placeholders})
+"""
+
+cur.executemany(
+    insert_query,
+    df.where(pd.notnull(df), None).values.tolist()
+)
+
+conn.commit()
