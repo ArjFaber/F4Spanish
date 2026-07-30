@@ -57,8 +57,6 @@ def obtain_tables_wiki():
             elif len(df.columns) == 16:  # originally 12 + 4 metadata columns
                 #df.to_csv(f"wikipedia_table_team_standing_{i}_{y}.csv", index=False)
                 combined_df = send_to_database(df,page_url,combined_df,str(i))
-        print(json.dumps(article, indent=2, ensure_ascii=False))
-        print(f"Saved {len(tables)} table(s)")
 
     return combined_df
 
