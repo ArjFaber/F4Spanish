@@ -173,41 +173,30 @@ def send_to_database(df, page_url,combined_df,tab):
     return combined_df
 
 combined_df = obtain_tables_wiki()
+combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+import re
 
-import psycopg2
+def make_unique_columns(columns, max_length=63):
+    new_columns = []
+    seen = {}
 
-table_name = "f4_spanish_results"
+    for col in columns:
+        # Clean characters
+        col = str(col).lower()
+        col = re.sub(r'[^a-z0-9_]', '_', col)
+        col = col.strip('_')
 
-# Create table dynamically
-columns = combined_df.columns.tolist()
+        # Truncate
+        col = col[:max_length]
 
-column_definitions = ", ".join(
-    f'"{col}" TEXT' for col in columns
-)
+        # Handle duplicates
+        if col in seen:
+            seen[col] += 1
+            suffix = f"_{seen[col]}"
+            col = col[:max_length - len(suffix)] + suffix
+        else:
+            seen[col] = 0
 
-cur.execute(f'DROP TABLE IF EXISTS "{table_name}" CASCADE;')
-conn.commit()
+        new_columns.append(col)
 
-cur.execute(f"""
-CREATE TABLE IF NOT EXISTS "{table_name}" (
-    {column_definitions}
-)
-""")
-
-conn.commit()
-
-# Build INSERT statement dynamically
-column_names = ", ".join(f'"{col}"' for col in columns)
-placeholders = ", ".join(["%s"] * len(columns))
-
-insert_query = f"""
-INSERT INTO "{table_name}" ({column_names})
-VALUES ({placeholders})
-"""
-
-cur.executemany(
-    insert_query,
-    df.where(pd.notnull(df), None).values.tolist()
-)
-
-conn.commit()
+    return new_columns
