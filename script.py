@@ -11,30 +11,24 @@ import pandas as pd
 import psycopg2
 import easyocr
 
-def crawl(url):
-    time.sleep(10)  # wacht 3 seconden tussen requests
+import json
+from io import StringIO
 
-    headers = {
-        "User-Agent": "F4DataScraper/1.0 "
-    }
-
-    response = requests.get(
-        url,
-        headers=headers
-    )
-
-    response.raise_for_status()
-
-    return response.text
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from pathlib import Path
+import random 
   
 def obtain_tables_wiki():
+    
     years = [2022, 2023, 2024, 2025,2026]
     combined_df = None
     for y in years:
-
+        print("Year: ", y)
         page_url = f"https://en.wikipedia.org/wiki/{y}_F4_Spanish_Championship"
 
-        html = crawl(page_url)
+        html = crawl(page_url, 30)
 
         article, tables = scrape_article(html)
         article["source_url"] = page_url
@@ -68,28 +62,22 @@ def obtain_tables_wiki():
                 #df.to_csv(f"wikipedia_table_team_standing_{i}_{y}.csv", index=False)
                 combined_df = send_to_database(df,page_url,combined_df,str(i))
 
+
     return combined_df
 
 
-import json
-from io import StringIO
-
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from pathlib import Path
-
-def crawl(url):
+def crawl(url, t):
+    time.sleep(t + random.uniform(0, 3))
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/138.0.0.0 Safari/537.36"
-        )
+    "User-Agent": (
+        "F4ResultsResearchBot/1.0 "
+        "(https://github.com/arjfaber; arjan-faber@hotmail.com)"
+    )
     }
 
     response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
+    time.sleep(t)
     return response.text
 
 
@@ -289,4 +277,3 @@ cur.close()
 conn.close()
 
 print(f"Imported {len(combined_df)} rows into {table_name}")
-
