@@ -210,3 +210,83 @@ def make_unique_columns(columns, max_length=63):
         new_columns.append(col)
 
     return new_columns
+
+combined_df.columns = make_unique_columns(combined_df.columns)
+
+conn = psycopg2.connect(
+            host="ep-long-glitter-at9v26w9-pooler.c-9.us-east-1.aws.neon.tech",
+            database="neondb",
+            user="neondb_owner",
+            password="npg_P6OimSTt9ngC",
+            port=5432,
+            sslmode="require"
+        )
+cur = conn.cursor()
+
+table_name = "f4_spanish_results"
+
+
+# Remove existing table
+cur.execute(f'DROP TABLE IF EXISTS "{table_name}";')
+conn.commit()
+
+
+# Create table dynamically
+columns = combined_df.columns.tolist()
+
+column_definitions = ", ".join(
+    f'"{col}" TEXT'
+    for col in columns
+)
+
+cur.execute(f"""
+CREATE TABLE "{table_name}" (
+    {column_definitions}
+);
+""")
+
+conn.commit()
+
+
+# Insert data dynamically
+column_names = ", ".join(
+    f'"{col}"'
+    for col in columns
+)
+
+placeholders = ", ".join(
+    ["%s"] * len(columns)
+)
+
+insert_query = f"""
+INSERT INTO "{table_name}" ({column_names})
+VALUES ({placeholders})
+"""
+
+
+# Convert NaN -> None for PostgreSQL NULL
+data = combined_df.where(
+    pd.notnull(combined_df),
+    None
+).values.tolist()
+
+
+# Safety check
+assert all(
+    len(row) == len(columns)
+    for row in data
+), "Column/value mismatch"
+
+
+cur.executemany(
+    insert_query,
+    data
+)
+
+conn.commit()
+
+cur.close()
+conn.close()
+
+print(f"Imported {len(combined_df)} rows into {table_name}")
+
