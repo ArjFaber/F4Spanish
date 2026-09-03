@@ -1,7 +1,6 @@
 import time
 import requests
 from io import BytesIO
-import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import pdfplumber
@@ -10,75 +9,24 @@ from urllib.parse import urlparse
 import pandas as pd 
 import psycopg2
 import easyocr
-
 import json
 from io import StringIO
-
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 from pathlib import Path
 import random 
-  
-def obtain_tables_wiki():
-    
-    years = [2022, 2023, 2024, 2025,2026]
-    combined_df = None
-    for y in years:
-        print("Year: ", y)
-        page_url = f"https://en.wikipedia.org/wiki/{y}_F4_Spanish_Championship"
-
-        html = crawl(page_url, 30)
-
-        article, tables = scrape_article(html)
-        article["source_url"] = page_url
-        article["license"] = "CC BY-SA 4.0"
-
-        with open("wikipedia.json", "w", encoding="utf-8") as f:
-            json.dump(article, f, indent=2, ensure_ascii=False)
-
-        
-
-        for i, df in enumerate(tables):
-        
-            # Append metadata columns
-            df["year"] = y
-            df["table_index"] = i
-            df["source_url"] = page_url
-            df["license"] = "CC BY-SA 4.0"
-            if combined_df is None:
-                combined_df = df.copy()
-           
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            #if len(df.columns) == 7:  # originally 3 + 4 metadata columns
-                #df.to_csv(f"wikipedia_table_team_standing_{i}_{y}.csv", index=False)
-            #    combined_df = send_to_database(df,page_url,combined_df,str(i))
-
-            if len(df.columns) > 20:  # originally >20
-                #df.to_csv(f"wikipedia_table_results_{i}_{y}.csv", index=False)
-                combined_df = send_to_database(df,page_url,combined_df,str(i))
-            elif len(df.columns) == 16:  # originally 12 + 4 metadata columns
-                #df.to_csv(f"wikipedia_table_team_standing_{i}_{y}.csv", index=False)
-                combined_df = send_to_database(df,page_url,combined_df,str(i))
-
-
-    return combined_df
-
+import re
 
 def crawl(url, t):
     time.sleep(t + random.uniform(0, 3))
     headers = {
-    "User-Agent": (
-        "F4ResultsResearchBot/1.0 "
-        "(https://github.com/arjfaber; arjan-faber@hotmail.com)"
-    )
+        "User-Agent": (
+            "F4ResultsBritishBot/1.0 "
+            "(https://github.com/arjfaber; arjan-faber@hotmail.com)"
+        )
     }
-
     response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
     time.sleep(t)
-    return response.text
+    return response.text 
 
 
 def scrape_article(html):
@@ -134,6 +82,7 @@ def scrape_article(html):
         "infobox": infobox,
     }, tables
 
+
 def clean_columns(df):
     # remove duplicated column names
     df = df.loc[:, ~df.columns.duplicated()]
@@ -150,29 +99,80 @@ def find_driver_column(df):
             return col
     return None
 
-def send_to_database(df, page_url,combined_df,tab):
 
+def send_to_database(df, page_url, combined_df, tab):
     driver_col = find_driver_column(df)
 
-    df = df.rename(columns={driver_col: "Driver"})
+    if driver_col:
+        df = df.rename(columns={driver_col: "Driver"})
+        key = "Driver"
+
+    elif "Team" in df.columns:
+        key = "Team"
+
+    else:
+        print("Skipping table")
+        print(df.columns.tolist())
+        return combined_df
+
     df = clean_columns(df)
 
+    # First valid table becomes the base dataframe
+    if combined_df is None:
+        return df
+
     combined_df = clean_columns(combined_df)
 
-    # make columns unique before merge
-    suffix = "_" + str(page_url) +'_tab_' + tab
-   
+    suffix = "_" + str(page_url) + "_tab_" + tab
+
     combined_df = pd.merge(
         combined_df,
-        df, on="Driver", how="outer", suffixes=("", suffix))
+        df,
+        on=["Driver", "year"],
+        how="outer",
+        suffixes=("", suffix)
+    )
 
-    combined_df = clean_columns(combined_df)
+    return clean_columns(combined_df)
+
+
+def obtain_tables_wiki():
+    years = [2022, 2023, 2024, 2025, 2026]
+    combined_df = None
+    for y in years:
+        print("Year: ", y)
+        page_url = f"https://en.wikipedia.org/wiki/{y}_F4_Spanish_Championship"
+
+        try:
+            html = crawl(page_url, 30)
+            article, tables = scrape_article(html)
+        except Exception as e:
+            print(f"Failed to crawl or parse {y}: {e}")
+            continue
+
+        article["source_url"] = page_url
+        article["license"] = "CC BY-SA 4.0"
+
+        with open("wikipedia.json", "w", encoding="utf-8") as f:
+            json.dump(article, f, indent=2, ensure_ascii=False)
+
+        for i, df in enumerate(tables):
+            df["year"] = y
+            df["table_index"] = i
+            df["source_url"] = page_url
+            df["license"] = "CC BY-SA 4.0"
+
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            if len(df.columns) > 20 or len(df.columns) == 16:
+                try:
+                    combined_df = send_to_database(df, page_url, combined_df, str(i))
+                except Exception as e:
+                    print(f"Skipped table {i} for {y} due to error: {e}")
 
     return combined_df
 
-combined_df = obtain_tables_wiki()
-combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
-import re
 
 def make_unique_columns(columns, max_length=63):
     new_columns = []
@@ -199,25 +199,31 @@ def make_unique_columns(columns, max_length=63):
 
     return new_columns
 
+
+# --- Execution Block (Bottom) ---
+combined_df = obtain_tables_wiki()
+
+if combined_df is None or combined_df.empty:
+    raise ValueError("No data was collected from Wikipedia. Check if table column structures or URLs have changed.")
+
+combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
 combined_df.columns = make_unique_columns(combined_df.columns)
 
 conn = psycopg2.connect(
-            host="ep-long-glitter-at9v26w9-pooler.c-9.us-east-1.aws.neon.tech",
-            database="neondb",
-            user="neondb_owner",
-            password="npg_P6OimSTt9ngC",
-            port=5432,
-            sslmode="require"
-        )
+    host="ep-long-glitter-at9v26w9-pooler.c-9.us-east-1.aws.neon.tech",
+    database="neondb",
+    user="neondb_owner",
+    password="npg_P6OimSTt9ngC",
+    port=5432,
+    sslmode="require"
+)
 cur = conn.cursor()
 
-table_name = "f4_spanish_results"
-
+table_name = "f4_british_results"
 
 # Remove existing table
 cur.execute(f'DROP TABLE IF EXISTS "{table_name}";')
 conn.commit()
-
 
 # Create table dynamically
 columns = combined_df.columns.tolist()
@@ -235,7 +241,6 @@ CREATE TABLE "{table_name}" (
 
 conn.commit()
 
-
 # Insert data dynamically
 column_names = ", ".join(
     f'"{col}"'
@@ -251,20 +256,17 @@ INSERT INTO "{table_name}" ({column_names})
 VALUES ({placeholders})
 """
 
-
 # Convert NaN -> None for PostgreSQL NULL
 data = combined_df.where(
     pd.notnull(combined_df),
     None
 ).values.tolist()
 
-
 # Safety check
 assert all(
     len(row) == len(columns)
     for row in data
 ), "Column/value mismatch"
-
 
 cur.executemany(
     insert_query,
@@ -275,5 +277,5 @@ conn.commit()
 
 cur.close()
 conn.close()
-
+print(combined_df.groupby("year").size())
 print(f"Imported {len(combined_df)} rows into {table_name}")
