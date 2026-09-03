@@ -14,18 +14,39 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+
+      - name: Verify Python
+        run: |
+          python --version
+          which python
+          python -c "import sys; print(sys.executable)"
+
+      - name: Remove old virtual environment
+        run: |
+          rm -rf .venv
+
+      - name: Create virtual environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python --version
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          playwright install --with-deps
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements.txt
+
+      - name: Verify cryptography
+        run: |
+          .venv/bin/python -c "import cryptography; print(cryptography.__version__)"
+          .venv/bin/python -c "from cryptography.hazmat.primitives import hashes; print('cryptography OK')"
 
       - name: Run scraper
-        run: python script.py
+        run: |
+          .venv/bin/python script.py
